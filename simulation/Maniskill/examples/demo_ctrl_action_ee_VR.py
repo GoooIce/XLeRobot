@@ -10,19 +10,19 @@ import cv2
 from PIL import Image
 import torch
 
-# Add Rerun imports
+# Rerun导入 - 用于实时数据可视化
 try:
     import rerun as rr
     RERUN_AVAILABLE = True
 except ImportError:
     RERUN_AVAILABLE = False
-    print("Warning: Rerun not available. Install with: pip install rerun-sdk")
+    print("警告：Rerun不可用。请使用以下命令安装：pip install rerun-sdk")
 
 from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.utils import gym_utils
 from mani_skill.utils.wrappers import RecordEpisode
 
-# Import vr_monitor instead of OculusReader
+# 导入VR监视器模块替代OculusReader
 import sys
 import os
 sys.path.append(os.path.abspath("/home/vec/lerobot/mani_skill/examples"))
@@ -34,53 +34,55 @@ from typing import List, Optional, Annotated, Union
 
 @dataclass
 class Args:
+    """VR控制演示的命令行参数配置类"""
+
     env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "PushCube-v1"
-    """The environment ID of the task you want to simulate"""
+    """要模拟的任务环境ID"""
 
     obs_mode: Annotated[str, tyro.conf.arg(aliases=["-o"])] = "sensor_data"
-    """Observation mode - changed to sensor_data to get camera images"""
+    """观察模式 - 更改为sensor_data以获取相机图像"""
 
     robot_uids: Annotated[Optional[str], tyro.conf.arg(aliases=["-r"])] = None
-    """Robot UID(s) to use. Can be a comma separated list of UIDs or empty string to have no agents. If not given then defaults to the environments default robot"""
+    """要使用的机器人UID。可以是逗号分隔的UID列表或空字符串表示无代理。如果未提供，则默认为环境的默认机器人"""
 
     sim_backend: Annotated[str, tyro.conf.arg(aliases=["-b"])] = "auto"
-    """Which simulation backend to use. Can be 'auto', 'cpu', 'gpu'"""
+    """使用的仿真后端。可以是'auto'、'cpu'、'gpu'"""
 
     reward_mode: Optional[str] = None
-    """Reward mode"""
+    """奖励模式"""
 
     num_envs: Annotated[int, tyro.conf.arg(aliases=["-n"])] = 1
-    """Number of environments to run."""
+    """运行的环境数量"""
 
     control_mode: Annotated[Optional[str], tyro.conf.arg(aliases=["-c"])] = None
-    """Control mode"""
+    """控制模式"""
 
     render_mode: str = "rgb_array"
-    """Render mode - using rgb_array to get camera images"""
+    """渲染模式 - 使用rgb_array获取相机图像"""
 
     shader: str = "default"
-    """Change shader used for all cameras in the environment for rendering. Default is 'minimal' which is very fast. Can also be 'rt' for ray tracing and generating photo-realistic renders. Can also be 'rt-fast' for a faster but lower quality ray-traced renderer"""
+    """更改环境中所有相机用于渲染的着色器。默认是'default'，速度很快。也可以是'rt'用于光线追踪和生成照片级真实感渲染。也可以是'rt-fast'用于更快但质量较低的光线追踪渲染器"""
 
     record_dir: Optional[str] = None
-    """Directory to save recordings"""
+    """保存录制的目录"""
 
     pause: Annotated[bool, tyro.conf.arg(aliases=["-p"])] = False
-    """If using human render mode, auto pauses the simulation upon loading"""
+    """如果使用人类渲染模式，加载时自动暂停仿真"""
 
     quiet: bool = False
-    """Disable verbose output."""
+    """禁用详细输出"""
 
     seed: Annotated[Optional[Union[int, List[int]]], tyro.conf.arg(aliases=["-s"])] = None
-    """Seed(s) for random actions and simulator. Can be a single integer or a list of integers. Default is None (no seeds)"""
+    """随机动作和仿真器的种子。可以是单个整数或整数列表。默认为None（无种子）"""
 
     show_cameras: bool = True
-    """Whether to show camera feeds in Rerun"""
+    """是否在Rerun中显示相机画面"""
 
     debug_cameras: bool = False
-    """Enable debug output for camera processing"""
+    """启用相机处理的调试输出"""
 
     use_rerun: bool = True
-    """Whether to use Rerun for camera visualization"""
+    """是否使用Rerun进行相机可视化"""
 
 def get_mapped_joints(robot):
     """

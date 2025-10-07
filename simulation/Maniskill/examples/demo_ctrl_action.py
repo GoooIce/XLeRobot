@@ -4,10 +4,10 @@ import sapien
 import pygame
 import time
 
+# 注释掉的导入（可能用于未来的功能扩展）
 #from mani_skill.envs.sapien_env import BaseEnv
 #from mani_skill.utils import gym_utils
 #from mani_skill.utils.wrappers import RecordEpisode
-
 
 import tyro
 from dataclasses import dataclass
@@ -15,118 +15,142 @@ from typing import List, Optional, Annotated, Union
 
 @dataclass
 class Args:
+    """命令行参数配置类"""
+
     env_id: Annotated[str, tyro.conf.arg(aliases=["-e"])] = "PushCube-v1"
-    """The environment ID of the task you want to simulate"""
+    """要模拟的任务环境ID"""
 
     obs_mode: Annotated[str, tyro.conf.arg(aliases=["-o"])] = "none"
-    """Observation mode"""
+    """观察模式"""
 
     robot_uids: Annotated[Optional[str], tyro.conf.arg(aliases=["-r"])] = None
-    """Robot UID(s) to use. Can be a comma separated list of UIDs or empty string to have no agents. If not given then defaults to the environments default robot"""
+    """要使用的机器人UID。可以是逗号分隔的UID列表或空字符串表示无代理。如果未提供，则默认为环境的默认机器人"""
 
     sim_backend: Annotated[str, tyro.conf.arg(aliases=["-b"])] = "auto"
-    """Which simulation backend to use. Can be 'auto', 'cpu', 'gpu'"""
+    """使用的仿真后端。可以是'auto'、'cpu'、'gpu'"""
 
     reward_mode: Optional[str] = None
-    """Reward mode"""
+    """奖励模式"""
 
     num_envs: Annotated[int, tyro.conf.arg(aliases=["-n"])] = 1
-    """Number of environments to run."""
+    """运行的环境数量"""
 
     control_mode: Annotated[Optional[str], tyro.conf.arg(aliases=["-c"])] = None
-    """Control mode"""
+    """控制模式"""
 
     render_mode: str = "rgb_array"
-    """Render mode"""
+    """渲染模式"""
 
     shader: str = "default"
-    """Change shader used for all cameras in the environment for rendering. Default is 'minimal' which is very fast. Can also be 'rt' for ray tracing and generating photo-realistic renders. Can also be 'rt-fast' for a faster but lower quality ray-traced renderer"""
+    """更改环境中所有相机用于渲染的着色器。默认是'default'，速度很快。也可以是'rt'用于光线追踪和生成照片级真实感渲染。也可以是'rt-fast'用于更快但质量较低的光线追踪渲染器"""
 
     record_dir: Optional[str] = None
-    """Directory to save recordings"""
+    """保存录制的目录"""
 
     pause: Annotated[bool, tyro.conf.arg(aliases=["-p"])] = False
-    """If using human render mode, auto pauses the simulation upon loading"""
+    """如果使用人类渲染模式，加载时自动暂停仿真"""
 
     quiet: bool = False
-    """Disable verbose output."""
+    """禁用详细输出"""
 
     seed: Annotated[Optional[Union[int, List[int]]], tyro.conf.arg(aliases=["-s"])] = None
-    """Seed(s) for random actions and simulator. Can be a single integer or a list of integers. Default is None (no seeds)"""
+    """随机动作和仿真器的种子。可以是单个整数或整数列表。默认为None（无种子）"""
 
 def get_mapped_joints(robot):
     """
-    Get the current joint positions from the robot and map them correctly to the target joints.
-    
-    The mapping is:
-    - full_joints[0,2] → current_joints[0,1] (base x position and base rotation)
-    - full_joints[3,6,9,11,13] → current_joints[2,3,4,5,6] (first arm joints)
-    - full_joints[4,7,10,12,14] → current_joints[7,8,9,10,11] (second arm joints)
-    
+    从机器人获取当前关节位置并正确映射到目标关节
+
+    映射关系：
+    - full_joints[0,2] → current_joints[0,1] (底盘x位置和旋转)
+    - full_joints[3,6,9,11,13] → current_joints[2,3,4,5,6] (第一臂关节)
+    - full_joints[4,7,10,12,14] → current_joints[7,8,9,10,11] (第二臂关节)
+    - full_joints[15,16] → current_joints[12,13] (夹爪关节)
+
+    Args:
+        robot: 机器人实例
+
     Returns:
-        np.ndarray: Mapped joint positions with shape matching the target_joints
+        np.ndarray: 映射后的关节位置数组，形状与目标关节匹配
     """
     if robot is None:
-        return np.zeros(16)  # Default size for action
-        
-    # Get full joint positions
+        return np.zeros(16)  # 动作的默认大小
+
+    # 获取完整关节位置
     full_joints = robot.get_qpos()
-    
-    # Convert tensor to numpy array if needed
+
+    # 如果需要，将张量转换为numpy数组
     if hasattr(full_joints, 'numpy'):
         full_joints = full_joints.numpy()
-    
-    # Handle case where it's a 2D tensor/array
+
+    # 处理2D张量/数组的情况
     if full_joints.ndim > 1:
         full_joints = full_joints.squeeze()
-    
-    # Create the mapped joints array with correct size
+
+    # 创建具有正确大小的映射关节数组
     mapped_joints = np.zeros(16)
-    
-    # Map the joints according to the specified mapping
+
+    # 根据指定映射映射关节
     if len(full_joints) >= 15:
-        # Base joints: [0,2] → [0,1]
-        mapped_joints[0] = full_joints[0]  # Base X position
-        mapped_joints[1] = full_joints[2]  # Base rotation
-        
-        # First arm: [3,6,9,11,13] → [2,3,4,5,6]
-        mapped_joints[2] = full_joints[3]
-        mapped_joints[3] = full_joints[6]
-        mapped_joints[4] = full_joints[9]
-        mapped_joints[5] = full_joints[11]
-        mapped_joints[6] = full_joints[13]
-        
-        # Second arm: [4,7,10,12,14] → [7,8,9,10,11]
-        mapped_joints[7] = full_joints[4]
-        mapped_joints[8] = full_joints[7]
-        mapped_joints[9] = full_joints[10]
-        mapped_joints[10] = full_joints[12]
-        mapped_joints[11] = full_joints[14]
-        mapped_joints[12] = full_joints[15]
-        mapped_joints[13] = full_joints[16]
-    
+        # 底盘关节: [0,2] → [0,1]
+        mapped_joints[0] = full_joints[0]  # 底盘X位置
+        mapped_joints[1] = full_joints[2]  # 底盘旋转
+
+        # 第一臂: [3,6,9,11,13] → [2,3,4,5,6]
+        mapped_joints[2] = full_joints[3]   # 旋转关节
+        mapped_joints[3] = full_joints[6]   # 俯仰关节
+        mapped_joints[4] = full_joints[9]   # 肘部关节
+        mapped_joints[5] = full_joints[11]  # 腕部俯仰关节
+        mapped_joints[6] = full_joints[13]  # 腕部滚转关节
+
+        # 第二臂: [4,7,10,12,14] → [7,8,9,10,11]
+        mapped_joints[7] = full_joints[4]   # 第二臂旋转关节
+        mapped_joints[8] = full_joints[7]   # 第二臂俯仰关节
+        mapped_joints[9] = full_joints[10]  # 第二臂肘部关节
+        mapped_joints[10] = full_joints[12] # 第二臂腕部俯仰关节
+        mapped_joints[11] = full_joints[14] # 第二臂腕部滚转关节
+
+        # 夹爪关节: [15,16] → [12,13]
+        if len(full_joints) >= 16:
+            mapped_joints[12] = full_joints[15]  # 第一臂夹爪
+        if len(full_joints) >= 17:
+            mapped_joints[13] = full_joints[16]  # 第二臂夹爪
+
     return mapped_joints
 
 def main(args: Args):
+    """
+    主函数：启动机器人控制演示程序
+
+    Args:
+        args: 命令行参数
+    """
     pygame.init()
-    
+
+    # 初始化控制窗口
     screen_width, screen_height = 600, 750
     screen = pygame.display.set_mode((screen_width, screen_height))
     pygame.display.set_caption("Control Window - Use keys to move")
     font = pygame.font.SysFont(None, 24)
-    
+
+    # 设置numpy打印选项
     np.set_printoptions(suppress=True, precision=3)
     verbose = not args.quiet
+
+    # 处理随机种子
     if isinstance(args.seed, int):
         args.seed = [args.seed]
     if args.seed is not None:
         np.random.seed(args.seed[0])
+
+    # 配置并行渲染设置
     parallel_in_single_scene = args.render_mode == "human"
     if args.render_mode == "human" and args.obs_mode in ["sensor_data", "rgb", "rgbd", "depth", "point_cloud"]:
-        print("Disabling parallel single scene/GUI render as observation mode is a visual one. Change observation mode to state or state_dict to see a parallel env render")
+        print("禁用并行单场景/GUI渲染，因为观察模式是视觉模式。将观察模式更改为state或state_dict以查看并行环境渲染")
         parallel_in_single_scene = False
     if args.render_mode == "human" and args.num_envs == 1:
         parallel_in_single_scene = False
+
+    # 环境配置参数
     env_kwargs = dict(
         obs_mode=args.obs_mode,
         reward_mode=args.reward_mode,
@@ -140,158 +164,174 @@ def main(args: Args):
         enable_shadow=True,
         parallel_in_single_scene=parallel_in_single_scene,
     )
+
+    # 处理机器人UID配置
     if args.robot_uids is not None:
         env_kwargs["robot_uids"] = tuple(args.robot_uids.split(","))
         if len(env_kwargs["robot_uids"]) == 1:
             env_kwargs["robot_uids"] = env_kwargs["robot_uids"][0]
+
+    # 创建环境
     env: BaseEnv = gym.make(
         args.env_id,
         **env_kwargs
     )
+
+    # 配置录制设置
     record_dir = args.record_dir
     if record_dir:
         record_dir = record_dir.format(env_id=args.env_id)
         env = RecordEpisode(env, record_dir, info_on_video=False, save_trajectory=False, max_steps_per_video=gym_utils.find_max_episode_steps_value(env))
 
+    # 打印环境信息
     if verbose:
-        print("Observation space", env.observation_space)
-        print("Action space", env.action_space)
+        print("观察空间", env.observation_space)
+        print("动作空间", env.action_space)
         if env.unwrapped.agent is not None:
-            print("Control mode", env.unwrapped.control_mode)
-        print("Reward mode", env.unwrapped.reward_mode)
+            print("控制模式", env.unwrapped.control_mode)
+        print("奖励模式", env.unwrapped.reward_mode)
 
+    # 重置环境
     obs, _ = env.reset(seed=args.seed, options=dict(reconfigure=True))
     if args.seed is not None and env.action_space is not None:
-            env.action_space.seed(args.seed[0])
+        env.action_space.seed(args.seed[0])
+
+    # 配置渲染器
     if args.render_mode is not None:
         viewer = env.render()
         if isinstance(viewer, sapien.utils.Viewer):
             viewer.paused = args.pause
         env.render()
-    
+
+    # 初始化动作向量
     action = env.action_space.sample() if env.action_space is not None else None
     action = np.zeros_like(action)
-    
-    # Initialize target joint positions with zeros
+
+    # 初始化目标关节位置（全零）
     target_joints = np.zeros_like(action)
-    # Define the step size for changing target joints
+    # 定义目标关节变化的步长
     joint_step = 0.01
-    # Define the gain for the proportional controller as a list for each joint
-    p_gain = np.ones_like(action)  # Default all gains to 1.0
-    # Specific gains can be adjusted here
-    p_gain[0] = 1.0     # Base forward/backward
-    p_gain[1] = 0.5     # Base rotation - lower gain for smoother turning
-    p_gain[2:7] = 1.0   # First arm joints
-    p_gain[7:12] = 1.0  # Second arm joints
-    p_gain[12:14] = 0.04  # Gripper joints
-    
-    # Get initial joint positions if available
+
+    # 定义每个关节的比例控制器增益
+    p_gain = np.ones_like(action)  # 默认所有增益为1.0
+    # 可以在这里调整特定增益
+    p_gain[0] = 1.0     # 底盘前进/后退
+    p_gain[1] = 0.5     # 底盘旋转 - 较低增益以实现更平滑的转向
+    p_gain[2:7] = 1.0   # 第一臂关节
+    p_gain[7:12] = 1.0  # 第二臂关节
+    p_gain[12:14] = 0.04  # 夹爪关节 - 较低增益以实现平滑控制
+
+    # 获取初始关节位置（如果可用）
     current_joints = np.zeros_like(action)
     robot = None
-    
-    # Try to get the robot instance for direct access
+
+    # 尝试获取机器人实例以直接访问
     if hasattr(env.unwrapped, "agent"):
         robot = env.unwrapped.agent.robot
     elif hasattr(env.unwrapped, "agents") and len(env.unwrapped.agents) > 0:
-        robot = env.unwrapped.agents[0]  # Get the first robot if multiple exist
-    
-    print("robot", robot)
-    
-    # Get the correctly mapped joints
+        robot = env.unwrapped.agents[0]  # 如果存在多个机器人，获取第一个
+
+    print("机器人实例", robot)
+
+    # 获取正确映射的关节
     current_joints = get_mapped_joints(robot)
-    
-    # Ensure target_joints is a numpy array with the same shape as current_joints
+
+    # 确保target_joints是与current_joints相同形状的numpy数组
     target_joints = np.zeros_like(current_joints)
-    
-    # Add step counter for warmup phase
+
+    # 添加预热阶段的步骤计数器
     step_counter = 0
-    warmup_steps = 50
+    warmup_steps = 50  # 预热步数
     
+    # 主控制循环
     while True:
+        # 处理pygame事件
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 env.close()
                 return
-        
+
+        # 获取按键状态
         keys = pygame.key.get_pressed()
-        
-        # Update target joint positions based on key presses - only after warmup
+
+        # 基于按键更新目标关节位置 - 仅在预热阶段后
         if step_counter >= warmup_steps:
-            # Base forward/backward - direct control
+            # 底盘前进/后退 - 直接控制
             if keys[pygame.K_w]:
-                action[0] = 0.1  # Forward
+                action[0] = 0.1  # 前进
             elif keys[pygame.K_s]:
-                action[0] = -0.1  # Backward
+                action[0] = -0.1  # 后退
             else:
-                action[0] = 0.0  # Stop forward/backward movement
-                
-            # Base turning - using target_joints and P control
+                action[0] = 0.0  # 停止前进/后退运动
+
+            # 底盘转向 - 使用目标关节和P控制
             if keys[pygame.K_a]:
-                target_joints[1] += joint_step*2  # Turn left
+                target_joints[1] += joint_step*2  # 左转
             elif keys[pygame.K_d]:
-                target_joints[1] -= joint_step*2  # Turn right
-            
-            # Arm control - using target_joints and P control
+                target_joints[1] -= joint_step*2  # 右转
+
+            # 第一臂控制 - 使用目标关节和P控制
             if keys[pygame.K_7]:
-                target_joints[2] += joint_step
+                target_joints[2] += joint_step  # 第一臂旋转关节正转
             if keys[pygame.K_y]:
-                target_joints[2] -= joint_step
+                target_joints[2] -= joint_step  # 第一臂旋转关节反转
             if keys[pygame.K_8]:
-                target_joints[3] += joint_step
+                target_joints[3] += joint_step  # 第一臂俯仰关节正转
             if keys[pygame.K_u]:
-                target_joints[3] -= joint_step
+                target_joints[3] -= joint_step  # 第一臂俯仰关节反转
             if keys[pygame.K_9]:
-                target_joints[4] += joint_step
+                target_joints[4] += joint_step  # 第一臂肘部关节正转
             if keys[pygame.K_i]:
-                target_joints[4] -= joint_step
+                target_joints[4] -= joint_step  # 第一臂肘部关节反转
             if keys[pygame.K_0]:
-                target_joints[5] += joint_step
+                target_joints[5] += joint_step  # 第一臂腕部俯仰关节正转
             if keys[pygame.K_o]:
-                target_joints[5] -= joint_step
+                target_joints[5] -= joint_step  # 第一臂腕部俯仰关节反转
             if keys[pygame.K_MINUS]:
-                target_joints[6] += joint_step
+                target_joints[6] += joint_step  # 第一臂腕部滚转关节正转
             if keys[pygame.K_p]:
-                target_joints[6] -= joint_step
-            
+                target_joints[6] -= joint_step  # 第一臂腕部滚转关节反转
+
+            # 第二臂控制 - 使用目标关节和P控制
             if keys[pygame.K_h]:
-                target_joints[7] += joint_step
+                target_joints[7] += joint_step  # 第二臂旋转关节正转
             if keys[pygame.K_n]:
-                target_joints[7] -= joint_step
+                target_joints[7] -= joint_step  # 第二臂旋转关节反转
             if keys[pygame.K_j]:
-                target_joints[8] += joint_step
+                target_joints[8] += joint_step  # 第二臂俯仰关节正转
             if keys[pygame.K_m]:
-                target_joints[8] -= joint_step
+                target_joints[8] -= joint_step  # 第二臂俯仰关节反转
             if keys[pygame.K_k]:
-                target_joints[9] += joint_step
+                target_joints[9] += joint_step  # 第二臂肘部关节正转
             if keys[pygame.K_COMMA]:
-                target_joints[9] -= joint_step
+                target_joints[9] -= joint_step  # 第二臂肘部关节反转
             if keys[pygame.K_l]:
-                target_joints[10] += joint_step
+                target_joints[10] += joint_step  # 第二臂腕部俯仰关节正转
             if keys[pygame.K_PERIOD]:
-                target_joints[10] -= joint_step
+                target_joints[10] -= joint_step  # 第二臂腕部俯仰关节反转
             if keys[pygame.K_SEMICOLON]:
-                target_joints[11] += joint_step
+                target_joints[11] += joint_step  # 第二臂腕部滚转关节正转
             if keys[pygame.K_SLASH]:
-                target_joints[11] -= joint_step
-            
-            # Gripper control - toggle between open and closed
+                target_joints[11] -= joint_step  # 第二臂腕部滚转关节反转
+
+            # 夹爪控制 - 在张开和闭合之间切换
             if keys[pygame.K_f]:
-                # Toggle first gripper (index 12)
-                if target_joints[12] < 0.4:  # If closed or partially closed
-                    target_joints[12] = 2.5  # Open
+                # 切换第一个夹爪（索引12）
+                if target_joints[12] < 0.4:  # 如果关闭或部分关闭
+                    target_joints[12] = 2.5  # 张开
                 else:
-                    target_joints[12] = 0.1  # Close
-                # Add a small delay to prevent multiple toggles
+                    target_joints[12] = 0.1  # 关闭
+                # 添加小延迟以防止多次切换
                 pygame.time.delay(200)
-                
+
             if keys[pygame.K_g]:
-                # Toggle second gripper (index 13)
-                if target_joints[13] < 0.4:  # If closed or partially closed
-                    target_joints[13] = 2.5  # Open
+                # 切换第二个夹爪（索引13）
+                if target_joints[13] < 0.4:  # 如果关闭或部分关闭
+                    target_joints[13] = 2.5  # 张开
                 else:
-                    target_joints[13] = 0.1  # Close
-                # Add a small delay to prevent multiple toggles
+                    target_joints[13] = 0.1  # 关闭
+                # 添加小延迟以防止多次切换
                 pygame.time.delay(200)
         
         # Get current joint positions using our mapping function

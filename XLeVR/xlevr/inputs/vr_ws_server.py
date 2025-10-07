@@ -1,6 +1,9 @@
 """
-VR WebSocket server for receiving controller data from web browsers.
-Adapted from the original vr_robot_teleop.py script.
+VR WebSocket服务器模块。
+
+用于从Web浏览器接收VR控制器数据的WebSocket服务器。
+基于原有的vr_robot_teleop.py脚本改编而来，支持VR设备的远程遥操作控制。
+通过WebSocket协议接收VR设备的位置、姿态、按钮状态等数据，并将其转换为机器人控制指令。
 """
 
 import asyncio
@@ -16,37 +19,53 @@ from scipy.spatial.transform import Rotation as R
 from .base import BaseInputProvider, ControlGoal, ControlMode
 from ..config import XLeVRConfig
 
+# 获取当前模块的日志记录器
 logger = logging.getLogger(__name__)
 
 
 class VRControllerState:
-    """State tracking for a VR controller."""
-    
+    """
+    VR控制器的状态跟踪类。
+
+    管理单个VR控制器的状态信息，包括位置、姿态、按钮状态等。
+    使用四元数进行旋转跟踪，比欧拉角更稳定。
+    """
+
     def __init__(self, hand: str):
-        self.hand = hand
-        self.grip_active = False
-        self.trigger_active = False
-        
-        # Position tracking for relative movement
-        self.origin_position = None
-        self.origin_rotation = None
-        
-        # Quaternion-based rotation tracking (more stable than Euler)
-        self.origin_quaternion = None
-        self.accumulated_rotation_quat = None  # Accumulated rotation as quaternion
-        
-        # Rotation tracking for wrist control
-        self.z_axis_rotation = 0.0  # For wrist_roll
-        self.x_axis_rotation = 0.0  # For wrist_flex (pitch)
-        
-        # Position tracking
-        self.current_position = None
-        
-        # Rotation tracking
-        self.origin_wrist_angle = 0.0
+        """
+        初始化VR控制器状态。
+
+        Args:
+            hand: 控制器所属的手（"left" 或 "right"）
+        """
+        self.hand = hand                    # 控制器所属的手
+        self.grip_active = False            # 握把按钮是否激活
+        self.trigger_active = False         # 扳机是否激活
+
+        # 用于相对运动的位置跟踪
+        self.origin_position = None         # 原点位置（用于计算相对位移）
+        self.origin_rotation = None         # 原点旋转（欧拉角）
+
+        # 基于四元数的旋转跟踪（比欧拉角更稳定）
+        self.origin_quaternion = None       # 原点四元数
+        self.accumulated_rotation_quat = None  # 累积旋转四元数
+
+        # 用于手腕控制的旋转跟踪
+        self.z_axis_rotation = 0.0         # Z轴旋转（用于手腕滚动）
+        self.x_axis_rotation = 0.0         # X轴旋转（用于手腕俯仰）
+
+        # 位置跟踪
+        self.current_position = None        # 当前位置
+
+        # 旋转跟踪
+        self.origin_wrist_angle = 0.0      # 原点手腕角度
     
     def reset_grip(self):
-        """Reset grip state but preserve trigger state."""
+        """
+        重置握把状态但保留扳机状态。
+
+        在释放握把按钮时调用，重置所有与位置跟踪相关的状态。
+        """
         self.grip_active = False
         self.origin_position = None
         self.origin_rotation = None
@@ -54,9 +73,13 @@ class VRControllerState:
         self.accumulated_rotation_quat = None
         self.z_axis_rotation = 0.0
         self.x_axis_rotation = 0.0
-    
+
     def reset_origin(self):
-        """Reset origin position and rotation for auto-control mode."""
+        """
+        重置原点位置和旋转，用于自动控制模式。
+
+        在重新校准或切换控制模式时调用，重置所有原点相关的状态。
+        """
         self.origin_position = None
         self.origin_rotation = None
         self.origin_quaternion = None
@@ -66,22 +89,36 @@ class VRControllerState:
 
 
 class VRWebSocketServer(BaseInputProvider):
-    """WebSocket server for VR controller input."""
-    
+    """
+    VR控制器输入的WebSocket服务器。
+
+    继承自BaseInputProvider，实现了WebSocket服务器功能，
+    用于接收来自Web浏览器的VR控制器数据并将其转换为机器人控制指令。
+    支持SSL加密连接，确保数据传输安全。
+    """
+
     def __init__(self, command_queue: asyncio.Queue, config: XLeVRConfig, print_only: bool = False):
+        """
+        初始化VR WebSocket服务器。
+
+        Args:
+            command_queue: 用于发送控制目标的异步队列
+            config: 系统配置对象
+            print_only: 是否仅打印模式（不实际发送控制指令）
+        """
         super().__init__(command_queue)
         self.config = config
-        self.clients: Set = set()
-        self.server = None
-        self.print_only = print_only  # New flag for print-only mode
-        
-        # Controller states
-        self.left_controller = VRControllerState("left")
-        self.right_controller = VRControllerState("right")
-        
-        # Robot state tracking (for relative position calculation)
-        self.left_arm_origin_position = None
-        self.right_arm_origin_position = None
+        self.clients: Set = set()          # 连接的客户端集合
+        self.server = None                 # WebSocket服务器实例
+        self.print_only = print_only        # 仅打印模式标志
+
+        # 控制器状态
+        self.left_controller = VRControllerState("left")   # 左手控制器状态
+        self.right_controller = VRControllerState("right") # 右手控制器状态
+
+        # 机器人状态跟踪（用于相对位置计算）
+        self.left_arm_origin_position = None   # 左臂原点位置
+        self.right_arm_origin_position = None  # 右臂原点位置
     
     def setup_ssl(self) -> Optional[ssl.SSLContext]:
         """Setup SSL context for WebSocket server."""

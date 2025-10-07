@@ -1,5 +1,19 @@
 # code by boxjod 2025.1.13 copyright Box2AI Robotics 盒桥智能 版权所有
 
+"""
+JoyCon机器人控制主模块
+
+这是JoyCon机器人控制系统的核心模块，提供了完整的机器人控制功能。
+通过JoyCon手柄实现机器人的姿态控制、移动控制和夹爪控制。
+
+主要功能：
+- 6自由度机器人姿态控制
+- 基于陀螺仪的姿态估计
+- 按键事件处理和动作映射
+- 低通滤波数据平滑
+- 多种控制模式支持
+"""
+
 import math
 import time
 from glm import vec3, quat, angleAxis
@@ -14,53 +28,107 @@ import numpy as np
 import threading
 import logging
 
+# 支持的JoyCon序列号前缀
 JOYCON_SERIAL_SUPPORT = '9c:54:'
 
+
 class LowPassFilter:
+    """
+    低通滤波器类
+
+    用于平滑传感器数据，减少噪声对控制系统的影响。
+    实现简单的一阶低通滤波算法。
+    """
+
     def __init__(self, alpha=0.1):
-        self.alpha = alpha
-        self.prev_value = 0.0
+        """
+        初始化低通滤波器
+
+        参数:
+            alpha (float): 滤波系数，范围0-1，值越大响应越快，平滑效果越差
+        """
+        self.alpha = alpha        # 滤波系数
+        self.prev_value = 0.0     # 上一次的滤波输出值
 
     def update(self, new_value):
+        """
+        更新滤波器输出
+
+        使用指数移动平均算法计算新的滤波输出值。
+
+        参数:
+            new_value (float): 新的输入值
+
+        返回:
+            float: 滤波后的输出值
+        """
+        # 计算指数移动平均：新值权重alpha，旧值权重(1-alpha)
         self.prev_value = self.alpha * new_value + (1 - self.alpha) * self.prev_value
         return self.prev_value
     
 class AttitudeEstimator:
-    def __init__(self, 
-                pitch_Threhold = math.pi/2.0, 
-                roll_Threhold = math.pi/2.02, 
-                yaw_Threhold = -1, 
-                common_rad = True,
-                lerobot = False,
-                pitch_down_double = False,
-                lowpassfilter_alpha_rate = 0.05
+    """
+    姿态估计器类
+
+    使用互补滤波算法融合陀螺仪和加速度计数据，
+    计算JoyCon的三维姿态角度（roll、pitch、yaw）。
+    支持多种校准模式和输出格式。
+    """
+
+    def __init__(self,
+                pitch_Threhold = math.pi/2.0,     # 俯仰角阈值
+                roll_Threhold = math.pi/2.02,     # 横滚角阈值
+                yaw_Threhold = -1,                # 偏航角阈值（-1表示无限制）
+                common_rad = True,                # 是否使用通用弧度模式
+                lerobot = False,                  # 是否为LeRobot模式
+                pitch_down_double = False,        # 俯仰向下是否双倍
+                lowpassfilter_alpha_rate = 0.05   # 低通滤波系数比率
                 ):
-        self.pitch = 0.0 
-        self.roll = 0.0   
-        self.yaw = 0.0   
-        self.dt = 0.01  
-        self.alpha = 0.55
-        
+        """
+        初始化姿态估计器
+
+        参数:
+            pitch_Threhold (float): 俯仰角阈值，超出将被限制
+            roll_Threhold (float): 横滚角阈值，超出将被限制
+            yaw_Threhold (float): 偏航角阈值，超出将被限制
+            common_rad (bool): 是否使用通用弧度模式
+            lerobot (bool): 是否启用LeRobot特定模式
+            pitch_down_double (bool): 俯仰向下时是否使用双倍系数
+            lowpassfilter_alpha_rate (float): 低通滤波系数的调节比率
+        """
+        # 初始化姿态角度
+        self.pitch = 0.0   # 俯仰角
+        self.roll = 0.0    # 横滚角
+        self.yaw = 0.0     # 偏航角
+        self.dt = 0.01     # 时间步长（秒）
+        self.alpha = 0.55  # 互补滤波系数
+
+        # 偏航角差值
         self.yaw_diff = 0.0
+        # 各角度的限制阈值
         self.pitch_rad_T = pitch_Threhold
         self.roll_rad_T = roll_Threhold
         self.yaw_rad_T = yaw_Threhold
-        
+
+        # 模式标志
         self.common_rad = common_rad
         self.lerobot = lerobot
         self.pitch_down_double = pitch_down_double
-        
-        self.direction_X = vec3(1, 0, 0)
-        self.direction_Y = vec3(0, 1, 0)
-        self.direction_Z = vec3(0, 0, 1)
-        self.direction_Q = quat()
-        
-        self.lowpassfilter_alpha = 0.05 * lowpassfilter_alpha_rate# lerobot-plus 0.1
+
+        # 方向向量和四元数初始化
+        self.direction_X = vec3(1, 0, 0)  # X轴方向向量
+        self.direction_Y = vec3(0, 1, 0)  # Y轴方向向量
+        self.direction_Z = vec3(0, 0, 1)  # Z轴方向向量
+        self.direction_Q = quat()          # 旋转四元数
+
+        # 计算低通滤波系数
+        self.lowpassfilter_alpha = 0.05 * lowpassfilter_alpha_rate  # 默认系数
         if self.lerobot:
-            self.lowpassfilter_alpha = 0.08 * lowpassfilter_alpha_rate
-            
-        self.lpf_roll = LowPassFilter(alpha=self.lowpassfilter_alpha)   # lerobot real 
-        self.lpf_pitch = LowPassFilter(alpha=self.lowpassfilter_alpha)  # lerobot real 
+            self.lowpassfilter_alpha = 0.08 * lowpassfilter_alpha_rate  # LeRobot模式系数
+
+        # 创建横滚和俯仰角的低通滤波器
+        self.lpf_roll = LowPassFilter(alpha=self.lowpassfilter_alpha)   # 横滚角滤波器
+        self.lpf_pitch = LowPassFilter(alpha=self.lowpassfilter_alpha)  # 俯仰角滤波器 
     
     def reset_yaw(self):
         self.direction_X = vec3(1, 0, 0)
@@ -140,30 +208,63 @@ class AttitudeEstimator:
 
 
 class JoyconRobotics:
-    def __init__(self, 
-                 device: str = "right", 
-                 gripper_open: float = 1.0, 
-                 gripper_close: float = 0.0, 
-                 gripper_state: float = 1.0,
-                 horizontal_stick_mode: str = "y",
-                 close_y: bool = False,
-                 limit_dof: bool = False,
-                 glimit: list = [[0.125, -0.4,  0.046, -3.1, -1.5, -1.57], 
-                                 [0.380,  0.4,  0.23,  3.1,  1.5,  1.57]],
-                 offset_position_m: list = [0.0, 0.0, 0.0], # just use the position and yaw
-                 offset_euler_rad: list = [0.0, 0.0, 0.0], # adjust the orientation
-                 euler_reverse: list = [1, 1, 1], # -1 reverse
-                 direction_reverse: list = [1, 1, 1], # -1 reverse
-                 dof_speed: list = [1,1,1,1,1,1],
-                 rotation_filter_alpha_rate = 1,
-                 common_rad: bool = True,
-                 lerobot: bool = False,
-                 pitch_down_double: bool = False,
-                 without_rest_init: bool = False,
-                 pure_xz: bool = True,
-                 change_down_to_gripper: bool = False, # ZR to toggle gripper state is common for lerobot, ARX ARM and VixperX. But for UR, Sawyer and panda you could try this. ZR to go down and stick button to toggle gripper
-                 lowpassfilter_alpha_rate = 0.05,
+    """
+    JoyCon机器人控制器主类
+
+    这是整个JoyCon机器人控制系统的核心类，整合了JoyCon设备连接、
+    姿态估计、按键处理和机器人控制功能。提供完整的6自由度机器人控制接口。
+    """
+
+    def __init__(self,
+                 device: str = "right",                    # JoyCon设备类型
+                 gripper_open: float = 1.0,               # 夹爪开启值
+                 gripper_close: float = 0.0,              # 夹爪关闭值
+                 gripper_state: float = 1.0,              # 初始夹爪状态
+                 horizontal_stick_mode: str = "y",        # 水平摇杆模式
+                 close_y: bool = False,                   # 是否关闭Y轴控制
+                 limit_dof: bool = False,                 # 是否限制自由度
+                 glimit: list = [[0.125, -0.4,  0.046, -3.1, -1.5, -1.57],
+                                 [0.380,  0.4,  0.23,  3.1,  1.5,  1.57]],  # 位置和姿态限制
+                 offset_position_m: list = [0.0, 0.0, 0.0], # 位置偏移（米）
+                 offset_euler_rad: list = [0.0, 0.0, 0.0],  # 欧拉角偏移（弧度）
+                 euler_reverse: list = [1, 1, 1],          # 欧拉角反向设置
+                 direction_reverse: list = [1, 1, 1],      # 方向反向设置
+                 dof_speed: list = [1,1,1,1,1,1],          # 各自由度速度系数
+                 rotation_filter_alpha_rate = 1,           # 旋转滤波系数比率
+                 common_rad: bool = True,                  # 是否使用通用弧度模式
+                 lerobot: bool = False,                    # 是否为LeRobot模式
+                 pitch_down_double: bool = False,          # 俯仰向下是否双倍
+                 without_rest_init: bool = False,          # 是否跳过初始校准
+                 pure_xz: bool = True,                     # 是否纯XZ平面移动
+                 change_down_to_gripper: bool = False,     # 是否改变下键为夹爪控制
+                 lowpassfilter_alpha_rate = 0.05,          # 低通滤波系数比率
                  ):
+        """
+        初始化JoyCon机器人控制器
+
+        参数:
+            device (str): JoyCon设备类型，"right"或"left"
+            gripper_open (float): 夹爪完全开启时的值
+            gripper_close (float): 夹爪完全关闭时的值
+            gripper_state (float): 初始夹爪状态（1.0开启，0.0关闭）
+            horizontal_stick_mode (str): 水平摇杆控制模式
+            close_y (bool): 是否禁用Y轴移动控制
+            limit_dof (bool): 是否启用自由度限制
+            glimit (list): 机器人工作空间限制 [min_limits, max_limits]
+            offset_position_m (list): 初始位置偏移 [x, y, z]（米）
+            offset_euler_rad (list): 初始姿态偏移 [roll, pitch, yaw]（弧度）
+            euler_reverse (list): 欧拉角方向反转设置 [-1或1]
+            direction_reverse (list): 移动方向反转设置 [-1或1]
+            dof_speed (list): 各自由度速度系数 [x, y, z, roll, pitch, yaw]
+            rotation_filter_alpha_rate (float): 旋转滤波系数比率
+            common_rad (bool): 是否使用通用弧度转换模式
+            lerobot (bool): 是否启用LeRobot特定功能
+            pitch_down_double (bool): 俯仰向下时是否使用双倍系数
+            without_rest_init (bool): 是否跳过启动时的校准过程
+            pure_xz (bool): 是否限制移动在XZ平面内
+            change_down_to_gripper (bool): 是否将下键功能改为夹爪控制
+            lowpassfilter_alpha_rate (float): 低通滤波系数调节比率
+        """
         
         if device == "right":
             self.joycon_id = get_R_id()

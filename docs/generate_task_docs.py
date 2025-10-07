@@ -1,16 +1,25 @@
-# # Code to generate task documentation automatically
-# TASK_CATEGORIES_TO_INCLUDE = [
-#     "tabletop",
-#     "humanoid",
-#     "mobile_manipulation",
-#     "quadruped",
-#     "control",
-#     "drawing",
-# ]
+# # 任务文档自动生成代码
+#
+# 该脚本用于自动生成 XLeRobot 项目中任务相关的文档。
+# 它会扫描任务定义文件，提取任务信息，并生成格式化的文档。
 
-# TASK_CATEGORIES_NAME_MAP = {"tabletop": "table_top_gripper"}
-# GENERATED_TASKS_DOCS_FOLDER = "tasks"
-# GLOBAL_TASK_HEADER = """<!-- THIS IS ALL GENERATED DOCUMENTATION. DO NOT MODIFY THIS FILE -->
+# 要包含的任务类别列表
+TASK_CATEGORIES_TO_INCLUDE = [
+    "tabletop",              # 桌面任务
+    "humanoid",              # 人形机器人任务
+    "mobile_manipulation",  # 移动操控任务
+    "quadruped",            # 四足机器人任务
+    "control",              # 控制任务
+    "drawing",              # 绘画任务
+]
+
+# 任务类别名称映射（用于文档文件夹命名）
+TASK_CATEGORIES_NAME_MAP = {"tabletop": "table_top_gripper"}
+# 生成任务文档的文件夹名称
+GENERATED_TASKS_DOCS_FOLDER = "tasks"
+
+# 全局任务文档头部信息（包含徽章定义）
+GLOBAL_TASK_HEADER = """<!-- THIS IS ALL GENERATED DOCUMENTATION. DO NOT MODIFY THIS FILE -->
 # [asset-badge]: https://img.shields.io/badge/download%20asset-yes-blue.svg
 # [dense-reward-badge]: https://img.shields.io/badge/dense%20reward-yes-green.svg
 # [sparse-reward-badge]: https://img.shields.io/badge/sparse%20reward-yes-green.svg
@@ -18,69 +27,96 @@
 # [no-sparse-reward-badge]: https://img.shields.io/badge/sparse%20reward-no-red.svg
 # [demos-badge]: https://img.shields.io/badge/demos-yes-green.svg
 # """
-# GLOBAL_TASK_POST_HEADER = """
-# The document here has both a high-level overview/list of all tasks in a table as well as detailed task cards with video demonstrations after.
-# """
+# 全局任务文档后部说明信息
+GLOBAL_TASK_POST_HEADER = """
+The document here has both a high-level overview/list of all tasks in a table as well as detailed task cards with video demonstrations after.
+"""
 
-# TASK_CATEGORIES_HEADERS = {
-#     "tabletop": """# Table-Top 2 Finger Gripper Tasks
+# 任务类别头部信息定义
+# 每个类别都有其特定的描述和介绍信息
+TASK_CATEGORIES_HEADERS = {
+    # 桌面双指夹爪任务
+    "tabletop": """# Table-Top 2 Finger Gripper Tasks
 
-# These are tasks situated on table and involve a two-finger gripper arm robot manipulating objects on the surface.""",
-#     "humanoid": """# Humanoid Tasks
-# Both real-world humanoids and the Mujoco humanoid are supported in ManiSkill, and we are still in the process of adding more tasks. Humanoid category of tasks generally considers control of robots with two legs and two arms.""",
-#     "mobile_manipulation": """# Mobile Manipulation Tasks
+These are tasks situated on table and involve a two-finger gripper arm robot manipulating objects on the surface.""",
 
-# These are tasks where a mobile manipulator is used to manipulate objects. This cateogry primarily uses robots with mobile bases like Fetch or Stretch robots.
+    # 人形机器人任务
+    "humanoid": """# Humanoid Tasks
+Both real-world humanoids and the Mujoco humanoid are supported in ManiSkill, and we are still in the process of adding more tasks. Humanoid category of tasks generally considers control of robots with two legs and two arms.""",
 
-# For additional tasks, including scene-level mobile manipulation, please check out the [external benchmarks/tasks page](../external/index.md).
+    # 移动操控任务
+    "mobile_manipulation": """# Mobile Manipulation Tasks
+
+These are tasks where a mobile manipulator is used to manipulate objects. This cateogry primarily uses robots with mobile bases like Fetch or Stretch robots.
+
+For additional tasks, including scene-level mobile manipulation, please check out the [external benchmarks/tasks page](../external/index.md).
 # """,
-#     "quadruped": """# Quadruped Tasks
 
-# These are tasks where a quadruped robot is used for locomotion and/or manipulation. This cateogry primarily uses robots with four legs like the ANYmal or Unitree go robots.""",
-#     "control": """# Control Tasks
+    # 四足机器人任务
+    "quadruped": """# Quadruped Tasks
 
-# These are classic control tasks where the objective is to control a robot to reach a particular state, similar to the [DM Control suite](https://github.com/deepmind/dm_control) but with GPU parallelized simulation and rendering.""",
-#     "drawing": """# Drawing Tasks
+These are tasks where a quadruped robot is used for locomotion and/or manipulation. This cateogry primarily uses robots with four legs like the ANYmal or Unitree go robots.""",
 
-# These are tasks where the robot is controlled to draw a specific shape or pattern.""",
-# }
-# import urllib.request
-# import mani_skill.envs
-# from mani_skill.utils.download_demo import DATASET_SOURCES
-# from mani_skill.utils.registration import REGISTERED_ENVS
-# import os
-# import importlib
-# import inspect
-# from pathlib import Path
-# import cv2
-# import tempfile
+    # 控制任务
+    "control": """# Control Tasks
+
+These are classic control tasks where the objective is to control a robot to reach a particular state, similar to the [DM Control suite](https://github.com/deepmind/dm_control) but with GPU parallelized simulation and rendering.""",
+
+    # 绘画任务
+    "drawing": """# Drawing Tasks
+
+These are tasks where the robot is controlled to draw a specific shape or pattern.""",
+}
+# 导入必要的模块和库
+# import urllib.request           # 用于网络请求，获取视频和缩略图
+# import mani_skill.envs         # ManiSkill 环境模块
+# from mani_skill.utils.download_demo import DATASET_SOURCES  # 演示数据源
+# from mani_skill.utils.registration import REGISTERED_ENVS   # 注册的环境列表
+# import os                       # 操作系统接口
+# import importlib               # 动态导入模块
+# import inspect                 # 检查模块和函数
+# from pathlib import Path       # 路径操作
+# import cv2                     # OpenCV，用于图像处理
+# import tempfile               # 临时文件处理
 
 
-# def main():
+def main():
+    """
+    主函数：执行任务文档生成的核心流程
+
+    该函数负责：
+    1. 扫描任务定义文件
+    2. 解析任务类别和信息
+    3. 生成文档表格和任务卡片
+    4. 处理视频缩略图
+    5. 输出格式化的文档文件
+    """
+#     # 获取文档基础目录
 #     base_dir = Path(__file__).parent / "source"
 
-#     # Get the path to mani_skill/envs/tasks
+#     # 获取 mani_skill/envs/tasks 的路径
 #     tasks_dir = Path(mani_skill.envs.__file__).parent / "tasks"
 
-#     # Dictionary to store task info
+#     # 创建字典存储任务信息
 #     task_info = {}
 
-#     # Walk through all subfolders in tasks directory
+#     # 遍历任务目录中的所有子文件夹
 #     for root, dirs, files in os.walk(tasks_dir):
 #         for file in files:
+#             # 只处理 Python 文件，排除以 __ 开头的文件
 #             if file.endswith(".py") and not file.startswith("__"):
-#                 # Get relative import path
+#                 # 获取相对导入路径
 #                 rel_path = os.path.relpath(os.path.join(root, file), tasks_dir.parent)
-#                 module_path = rel_path.replace(os.sep, ".")[:-3]  # Remove .py
+#                 module_path = rel_path.replace(os.sep, ".")[:-3]  # 移除 .py 扩展名
 
-#                 # Import the module
+#                 # 动态导入模块
 #                 try:
 #                     module = importlib.import_module(f"mani_skill.envs.{module_path}")
 
-#                     # Find all classes defined in this module
+#                     # 查找此模块中定义的所有类
 #                     classes = inspect.getmembers(module, inspect.isclass)
 
-#                     # Store classes that are defined in this module (not imported)
+#                     # 存储在此模块中定义的类（而不是导入的类）
 #                     local_classes = [
 #                         cls
 #                         for name, cls in classes
@@ -92,12 +128,12 @@
 
 #                 except Exception as e:
 #                     print(f"Error importing {module_path}: {e}")
-#     # Filter to only include registered environment classes and those with docstrings
+#     # 过滤只包含已注册的环境类和有文档字符串的类
 #     filtered_task_info = {}
 #     for module_path, classes in task_info.items():
 #         registered_classes = []
 #         for cls in classes:
-#             # Check if this class is registered as an environment
+#             # 检查此类是否已注册为环境
 #             for env_id, env_spec in REGISTERED_ENVS.items():
 #                 if env_spec.cls == cls:
 #                     registered_classes.append(dict(env_id=env_id, cls=cls))
@@ -106,7 +142,7 @@
 #             filtered_task_info[module_path] = registered_classes
 
 #     task_info = filtered_task_info
-#     # Categorize tasks by their type
+#     # 按任务类型对任务进行分类
 #     categorized_tasks = {k: [] for k in TASK_CATEGORIES_TO_INCLUDE}
 
 #     for module_path in task_info.keys():
@@ -116,31 +152,33 @@
 #             if category in categorized_tasks:
 #                 categorized_tasks[category].append(module_path)
 
-#     # Generate documentation for each category and module
+#     # 为每个类别和模块生成文档
 #     print("\nTask Documentation:")
 #     for category, modules in categorized_tasks.items():
 #         print(f"\n{category}:")
-#         # Create directory if it doesn't exist
+#         # 如果目录不存在则创建
 #         category_name = TASK_CATEGORIES_NAME_MAP.get(category, category)
 #         os.makedirs(
 #             f"{base_dir}/{GENERATED_TASKS_DOCS_FOLDER}/{category_name}", exist_ok=True
 #         )
 
-#         # Delete existing index.md file for this category
+#         # 删除此类别现有的 index.md 文件
 #         if os.path.exists(
 #             f"{base_dir}/{GENERATED_TASKS_DOCS_FOLDER}/{category_name}/index.md"
 #         ):
 #             os.remove(f"{base_dir}/{GENERATED_TASKS_DOCS_FOLDER}/{category_name}/index.md")
+
+#         # 写入文档头部信息
 #         if category in TASK_CATEGORIES_HEADERS:
 #             with open(
 #                 f"{base_dir}/{GENERATED_TASKS_DOCS_FOLDER}/{category_name}/index.md", "w"
 #             ) as f:
-#                 f.write(GLOBAL_TASK_HEADER)
-#                 f.write(TASK_CATEGORIES_HEADERS[category])
-#                 f.write(GLOBAL_TASK_POST_HEADER)
+#                 f.write(GLOBAL_TASK_HEADER)                    # 写入全局头部信息
+#                 f.write(TASK_CATEGORIES_HEADERS[category])    # 写入类别特定头部
+#                 f.write(GLOBAL_TASK_POST_HEADER)              # 写入全局后部信息
 
-#         # Generate the short TLDR table of tasks
-#         env_id_to_thumbnail_path = {}
+#         # 生成任务简表（TLDR 表格）
+#         env_id_to_thumbnail_path = {}  # 存储环境ID到缩略图路径的映射
 #         with open(
 #             f"{base_dir}/{GENERATED_TASKS_DOCS_FOLDER}/{category_name}/index.md", "a"
 #         ) as f:
@@ -151,12 +189,12 @@
 #             f.write('\n<table class="table">')
 #             f.write("\n<thead>")
 #             f.write('\n<tr class="row-odd">')
-#             f.write('\n<th class="head"><p>Task</p></th>')
-#             f.write('\n<th class="head"><p>Preview</p></th>')
-#             f.write('\n<th class="head"><p>Dense Reward</p></th>')
-#             f.write('\n<th class="head"><p>Success/Fail Conditions</p></th>')
-#             f.write('\n<th class="head"><p>Demos</p></th>')
-#             f.write('\n<th class="head"><p>Max Episode Steps</p></th>')
+#             f.write('\n<th class="head"><p>Task</p></th>')                    # 任务名称列
+#             f.write('\n<th class="head"><p>Preview</p></th>')                # 预览图列
+#             f.write('\n<th class="head"><p>Dense Reward</p></th>')           # 密集奖励列
+#             f.write('\n<th class="head"><p>Success/Fail Conditions</p></th>') # 成功/失败条件列
+#             f.write('\n<th class="head"><p>Demos</p></th>')                  # 演示列
+#             f.write('\n<th class="head"><p>Max Episode Steps</p></th>')       # 最大步数列
 #             f.write("\n</tr>")
 #             f.write("\n</thead>")
 #             f.write("\n<tbody>")
@@ -406,5 +444,7 @@
 #                     print(f"Warning: {cls.__name__}, {env_id} has no docstring")
 
 
-# if __name__ == "__main__":
+# 脚本入口点
+# 当直接运行此脚本时，将执行 main() 函数
+if __name__ == "__main__":
 #     main()

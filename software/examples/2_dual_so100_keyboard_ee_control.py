@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Dual-arm keyboard control for SO100/SO101 robots
-Fixed action format conversion issues
-Uses P control, keyboard only changes target joint angles
-Supports simultaneous control of two robot arms: /dev/ttyACM0 and /dev/ttyACM1
-Keyboard mapping: First arm (7y8u9i0o-p=[), Second arm (hbjnkml,;.'/)
+SO100/SO101双臂机器人键盘控制程序
+修复了动作格式转换问题
+使用P控制，键盘仅改变目标关节角度
+支持同时控制两个机器人臂：/dev/ttyACM0 和 /dev/ttyACM1
+键盘映射：第一臂 (7y8u9i0o-p=[), 第二臂 (hbjnkml,;.'/)
 """
 
 import time
@@ -12,39 +12,40 @@ import logging
 import traceback
 import math
 
-# Set up logging
+# 设置日志系统
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Joint calibration coefficients - manually edit
-# Format: [joint_name, zero_position_offset(degrees), scaling_factor]
+# 关节校准系数 - 需要手动编辑
+# 格式：[关节名称, 零位偏移量(度), 缩放因子]
 JOINT_CALIBRATION = [
-    ['shoulder_pan', 6.0, 1.0],      # Joint1: zero position offset, scaling factor
-    ['shoulder_lift', 2.0, 0.97],     # Joint2: zero position offset, scaling factor
-    ['elbow_flex', 0.0, 1.05],        # Joint3: zero position offset, scaling factor
-    ['wrist_flex', 0.0, 0.94],        # Joint4: zero position offset, scaling factor
-    ['wrist_roll', 0.0, 0.5],        # Joint5: zero position offset, scaling factor
-    ['gripper', 0.0, 1.0],           # Joint6: zero position offset, scaling factor
+    ['shoulder_pan', 6.0, 1.0],      # 关节1：零位偏移量，缩放因子
+    ['shoulder_lift', 2.0, 0.97],     # 关节2：零位偏移量，缩放因子
+    ['elbow_flex', 0.0, 1.05],        # 关节3：零位偏移量，缩放因子
+    ['wrist_flex', 0.0, 0.94],        # 关节4：零位偏移量，缩放因子
+    ['wrist_roll', 0.0, 0.5],        # 关节5：零位偏移量，缩放因子
+    ['gripper', 0.0, 1.0],           # 关节6：零位偏移量，缩放因子
 ]
 
 def apply_joint_calibration(joint_name, raw_position):
     """
-    Apply joint calibration coefficients
-    
+    应用关节校准系数
+
     Args:
-        joint_name: Joint name
-        raw_position: Raw position value
-    
+        joint_name: 关节名称
+        raw_position: 原始位置值
+
     Returns:
-        calibrated_position: Calibrated position value
+        calibrated_position: 校准后的位置值
     """
+    # 遍历校准系数列表
     for joint_cal in JOINT_CALIBRATION:
         if joint_cal[0] == joint_name:
-            offset = joint_cal[1]  # Zero position offset
-            scale = joint_cal[2]   # Scaling factor
+            offset = joint_cal[1]  # 零位偏移量
+            scale = joint_cal[2]   # 缩放因子
             calibrated_position = (raw_position - offset) * scale
             return calibrated_position
-    return raw_position  # If no calibration coefficient found, return original value
+    return raw_position  # 如果找不到校准系数，返回原始值
 
 def inverse_kinematics(x, y, l1=0.1159, l2=0.1350):
     """

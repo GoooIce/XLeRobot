@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Simplified keyboard control for SO100/SO101 robot
-Fixed action format conversion issues
-Uses P control, keyboard only changes target joint angles
+SO100/SO101机器人简化键盘末端控制程序
+修复了动作格式转换问题
+使用P控制，键盘仅改变目标末端位置和关节角度
 """
 
 import time
@@ -10,126 +10,128 @@ import logging
 import traceback
 import math
 
-# Set up logging
+# 设置日志系统
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Joint calibration coefficients - manually edited
-# Format: [joint_name, zero_position_offset(degrees), scale_factor]
+# 关节校准系数 - 需要手动编辑
+# 格式：[关节名称, 零位偏移量(度), 缩放因子]
 JOINT_CALIBRATION = [
-    ['shoulder_pan', 6.0, 1.0],      # Joint 1: zero position offset, scale factor
-    ['shoulder_lift', 2.0, 0.97],     # Joint 2: zero position offset, scale factor
-    ['elbow_flex', 0.0, 1.05],        # Joint 3: zero position offset, scale factor
-    ['wrist_flex', 0.0, 0.94],        # Joint 4: zero position offset, scale factor
-    ['wrist_roll', 0.0, 0.5],        # Joint 5: zero position offset, scale factor
-    ['gripper', 0.0, 1.0],           # Joint 6: zero position offset, scale factor
+    ['shoulder_pan', 6.0, 1.0],      # 关节1：零位偏移量，缩放因子
+    ['shoulder_lift', 2.0, 0.97],     # 关节2：零位偏移量，缩放因子
+    ['elbow_flex', 0.0, 1.05],        # 关节3：零位偏移量，缩放因子
+    ['wrist_flex', 0.0, 0.94],        # 关节4：零位偏移量，缩放因子
+    ['wrist_roll', 0.0, 0.5],        # 关节5：零位偏移量，缩放因子
+    ['gripper', 0.0, 1.0],           # 关节6：零位偏移量，缩放因子
 ]
 
 def apply_joint_calibration(joint_name, raw_position):
     """
-    Apply joint calibration coefficients
-    
+    应用关节校准系数
+
     Args:
-        joint_name: joint name
-        raw_position: raw position value
-    
+        joint_name: 关节名称
+        raw_position: 原始位置值
+
     Returns:
-        calibrated_position: calibrated position value
+        calibrated_position: 校准后的位置值
     """
+    # 遍历校准系数列表
     for joint_cal in JOINT_CALIBRATION:
         if joint_cal[0] == joint_name:
-            offset = joint_cal[1]  # zero position offset
-            scale = joint_cal[2]   # scale factor
+            offset = joint_cal[1]  # 零位偏移量
+            scale = joint_cal[2]   # 缩放因子
             calibrated_position = (raw_position - offset) * scale
             return calibrated_position
-    return raw_position  # if no calibration coefficient found, return original value
+    return raw_position  # 如果找不到校准系数，返回原始值
 
 def inverse_kinematics(x, y, l1=0.1159, l2=0.1350):
     """
-    Calculate inverse kinematics for a 2-link robotic arm, considering joint offsets
-    
+    计算两连杆机械臂的逆运动学，考虑关节偏移
+
     Parameters:
-        x: End effector x coordinate
-        y: End effector y coordinate
-        l1: Upper arm length (default 0.1159 m)
-        l2: Lower arm length (default 0.1350 m)
-        
+        x: 末端执行器x坐标
+        y: 末端执行器y坐标
+        l1: 上臂长度（默认0.1159米）
+        l2: 下臂长度（默认0.1350米）
+
     Returns:
-        joint2, joint3: Joint angles in radians as defined in the URDF file
+        joint2, joint3: URDF文件中定义的关节角度（度）
     """
-    # Calculate joint2 and joint3 offsets in theta1 and theta2
-    theta1_offset = math.atan2(0.028, 0.11257)  # theta1 offset when joint2=0
-    theta2_offset = math.atan2(0.0052, 0.1349) + theta1_offset  # theta2 offset when joint3=0
-    
-    # Calculate distance from origin to target point
+    # 计算关节2和关节3在theta1和theta2中的偏移
+    theta1_offset = math.atan2(0.028, 0.11257)  # 关节2为0时的theta1偏移
+    theta2_offset = math.atan2(0.0052, 0.1349) + theta1_offset  # 关节3为0时的theta2偏移
+
+    # 计算原点到目标点的距离
     r = math.sqrt(x**2 + y**2)
-    r_max = l1 + l2  # Maximum reachable distance
-    
-    # If target point is beyond maximum workspace, scale it to the boundary
+    r_max = l1 + l2  # 最大可达距离
+
+    # 如果目标点超出最大工作空间，将其缩放到边界
     if r > r_max:
         scale_factor = r_max / r
         x *= scale_factor
         y *= scale_factor
         r = r_max
-    
-    # If target point is less than minimum workspace (|l1-l2|), scale it
+
+    # 如果目标点小于最小工作空间（|l1-l2|），将其缩放
     r_min = abs(l1 - l2)
     if r < r_min and r > 0:
         scale_factor = r_min / r
         x *= scale_factor
         y *= scale_factor
         r = r_min
-    
-    # Use law of cosines to calculate theta2
+
+    # 使用余弦定理计算theta2
     cos_theta2 = -(r**2 - l1**2 - l2**2) / (2 * l1 * l2)
-    
-    # Calculate theta2 (elbow angle)
+
+    # 计算theta2（肘部角度）
     theta2 = math.pi - math.acos(cos_theta2)
-    
-    # Calculate theta1 (shoulder angle)
+
+    # 计算theta1（肩部角度）
     beta = math.atan2(y, x)
     gamma = math.atan2(l2 * math.sin(theta2), l1 + l2 * math.cos(theta2))
     theta1 = beta + gamma
-    
-    # Convert theta1 and theta2 to joint2 and joint3 angles
+
+    # 将theta1和theta2转换为关节2和关节3角度
     joint2 = theta1 + theta1_offset
     joint3 = theta2 + theta2_offset
-    
-    # Ensure angles are within URDF limits
+
+    # 确保角度在URDF限制范围内
     joint2 = max(-0.1, min(3.45, joint2))
     joint3 = max(-0.2, min(math.pi, joint3))
-    
-    # Convert from radians to degrees
+
+    # 从弧度转换为度
     joint2_deg = math.degrees(joint2)
     joint3_deg = math.degrees(joint3)
 
+    # 调整角度以匹配机器人坐标系
     joint2_deg = 90-joint2_deg
     joint3_deg = joint3_deg-90
-    
+
     return joint2_deg, joint3_deg
 
 def move_to_zero_position(robot, duration=3.0, kp=0.5):
     """
-    Use P control to slowly move robot to zero position
-    
+    使用P控制缓慢移动机器人到零位
+
     Args:
-        robot: robot instance
-        duration: time to move to zero position (seconds)
-        kp: proportional gain
+        robot: 机器人实例
+        duration: 移动到零位所需时间（秒）
+        kp: 比例增益
     """
-    print("Using P control to slowly move robot to zero position...")
-    
-    # Get current robot state
+    print("使用P控制缓慢移动机器人到零位...")
+
+    # 获取当前机器人状态
     current_obs = robot.get_observation()
-    
-    # Extract current joint positions
+
+    # 提取当前关节位置
     current_positions = {}
     for key, value in current_obs.items():
         if key.endswith('.pos'):
             motor_name = key.removesuffix('.pos')
             current_positions[motor_name] = value
-    
-    # Zero position targets
+
+    # 零位目标
     zero_positions = {
         'shoulder_pan': 0.0,
         'shoulder_lift': 0.0,
@@ -138,77 +140,79 @@ def move_to_zero_position(robot, duration=3.0, kp=0.5):
         'wrist_roll': 0.0,
         'gripper': 0.0
     }
-    
-    # Calculate control steps
-    control_freq = 50  # 50Hz control frequency
+
+    # 计算控制步数
+    control_freq = 50  # 50Hz控制频率
     total_steps = int(duration * control_freq)
     step_time = 1.0 / control_freq
-    
-    print(f"Will use P control to move to zero position in {duration} seconds, control frequency: {control_freq}Hz, proportional gain: {kp}")
-    
+
+    print(f"将在{duration}秒内使用P控制移动到零位，控制频率：{control_freq}Hz，比例增益：{kp}")
+
+    # 执行P控制循环
     for step in range(total_steps):
-        # Get current robot state
+        # 获取当前机器人状态
         current_obs = robot.get_observation()
         current_positions = {}
         for key, value in current_obs.items():
             if key.endswith('.pos'):
                 motor_name = key.removesuffix('.pos')
-                # Apply calibration coefficients
+                # 应用校准系数
                 calibrated_value = apply_joint_calibration(motor_name, value)
                 current_positions[motor_name] = calibrated_value
-        
-        # P control calculation
+
+        # P控制计算
         robot_action = {}
         for joint_name, target_pos in zero_positions.items():
             if joint_name in current_positions:
                 current_pos = current_positions[joint_name]
                 error = target_pos - current_pos
-                
-                # P control: output = Kp * error
+
+                # P控制：输出 = Kp * 误差
                 control_output = kp * error
-                
-                # Convert control output to position command
+
+                # 将控制输出转换为位置命令
                 new_position = current_pos + control_output
                 robot_action[f"{joint_name}.pos"] = new_position
-        
-        # Send action to robot
+
+        # 向机器人发送动作
         if robot_action:
             robot.send_action(robot_action)
-        
-        # Show progress
-        if step % (control_freq // 2) == 0:  # Show progress every 0.5 seconds
+
+        # 显示进度
+        if step % (control_freq // 2) == 0:  # 每0.5秒显示一次进度
             progress = (step / total_steps) * 100
-            print(f"Moving to zero position progress: {progress:.1f}%")
-        
+            print(f"移动到零位进度：{progress:.1f}%")
+
         time.sleep(step_time)
-    
-    print("Robot has moved to zero position")
+
+    print("机器人已移动到零位")
 
 def return_to_start_position(robot, start_positions, kp=0.5, control_freq=50):
     """
-    Use P control to return to start position
-    
+    使用P控制返回起始位置
+
     Args:
-        robot: robot instance
-        start_positions: start joint position dictionary
-        kp: proportional gain
-        control_freq: control frequency (Hz)
+        robot: 机器人实例
+        start_positions: 起始关节位置字典
+        kp: 比例增益
+        control_freq: 控制频率（Hz）
     """
-    print("Returning to start position...")
-    
+    print("返回起始位置...")
+
     control_period = 1.0 / control_freq
-    max_steps = int(5.0 * control_freq)  # Maximum 5 seconds
-    
+    max_steps = int(5.0 * control_freq)  # 最长5秒
+
+    # 执行P控制循环返回起始位置
     for step in range(max_steps):
-        # Get current robot state
+        # 获取当前机器人状态
         current_obs = robot.get_observation()
         current_positions = {}
         for key, value in current_obs.items():
             if key.endswith('.pos'):
                 motor_name = key.removesuffix('.pos')
-                current_positions[motor_name] = value  # Don't apply calibration coefficients
-        
-        # P control calculation
+                current_positions[motor_name] = value  # 不应用校准系数
+
+        # P控制计算
         robot_action = {}
         total_error = 0
         for joint_name, target_pos in start_positions.items():
@@ -216,48 +220,48 @@ def return_to_start_position(robot, start_positions, kp=0.5, control_freq=50):
                 current_pos = current_positions[joint_name]
                 error = target_pos - current_pos
                 total_error += abs(error)
-                
-                # P control: output = Kp * error
+
+                # P控制：输出 = Kp * 误差
                 control_output = kp * error
-                
-                # Convert control output to position command
+
+                # 将控制输出转换为位置命令
                 new_position = current_pos + control_output
                 robot_action[f"{joint_name}.pos"] = new_position
-        
-        # Send action to robot
+
+        # 向机器人发送动作
         if robot_action:
             robot.send_action(robot_action)
-        
-        # Check if reached start position
-        if total_error < 2.0:  # If total error is less than 2 degrees, consider reached
-            print("Returned to start position")
+
+        # 检查是否到达起始位置
+        if total_error < 2.0:  # 如果总误差小于2度，认为到达
+            print("已返回起始位置")
             break
-        
+
         time.sleep(control_period)
-    
-    print("Return to start position completed")
+
+    print("返回起始位置完成")
 
 def p_control_loop(robot, keyboard, target_positions, start_positions, current_x, current_y, kp=0.5, control_freq=50):
     """
-    P control loop
-    
+    P控制循环 - 实现末端位置控制
+
     Args:
-        robot: robot instance
-        keyboard: keyboard instance
-        target_positions: target joint position dictionary
-        start_positions: start joint position dictionary
-        current_x: current x coordinate
-        current_y: current y coordinate
-        kp: proportional gain
-        control_freq: control frequency (Hz)
+        robot: 机器人实例
+        keyboard: 键盘实例
+        target_positions: 目标关节位置字典
+        start_positions: 起始关节位置字典
+        current_x: 当前x坐标
+        current_y: 当前y坐标
+        kp: 比例增益
+        control_freq: 控制频率（Hz）
     """
     control_period = 1.0 / control_freq
-    
-    # Initialize pitch control variables
-    pitch = 0.0  # Initial pitch adjustment
-    pitch_step = 1  # Pitch adjustment step size
-    
-    print(f"Starting P control loop, control frequency: {control_freq}Hz, proportional gain: {kp}")
+
+    # 初始化俯仰角控制变量
+    pitch = 0.0  # 初始俯仰角调整
+    pitch_step = 1  # 俯仰角调整步长
+
+    print(f"启动P控制循环，控制频率：{control_freq}Hz，比例增益：{kp}")
     
     while True:
         try:
@@ -378,52 +382,52 @@ def p_control_loop(robot, keyboard, target_positions, start_positions, current_x
             break
 
 def main():
-    """Main function"""
-    print("LeRobot Simplified Keyboard Control Example (P Control)")
+    """主函数 - 末端位置控制程序入口"""
+    print("LeRobot 简化键盘末端控制示例（P控制）")
     print("="*50)
-    
+
     try:
-        # Import necessary modules
+        # 导入必要的模块
         from lerobot.robots.so100_follower import SO100Follower, SO100FollowerConfig
         from lerobot.teleoperators.keyboard import KeyboardTeleop, KeyboardTeleopConfig
-        
-        # Get port
-        port = input("Please enter the USB port for SO100 robot (e.g., /dev/ttyACM0): ").strip()
-        
-        # If directly press Enter, use default port
+
+        # 获取端口
+        port = input("请输入SO100机器人的USB端口（例如：/dev/ttyACM0）：").strip()
+
+        # 如果直接按回车，使用默认端口
         if not port:
             port = "/dev/ttyACM0"
-            print(f"Using default port: {port}")
+            print(f"使用默认端口：{port}")
         else:
-            print(f"Connecting to port: {port}")
-        
-        # Configure robot
+            print(f"连接到端口：{port}")
+
+        # 配置机器人
         robot_config = SO100FollowerConfig(port=port)
         robot = SO100Follower(robot_config)
-        
-        # Configure keyboard
+
+        # 配置键盘
         keyboard_config = KeyboardTeleopConfig()
         keyboard = KeyboardTeleop(keyboard_config)
-        
-        # Connect devices
+
+        # 连接设备
         robot.connect()
         keyboard.connect()
-        
-        print("Device connection successful!")
-        
-        # Ask whether to recalibrate
+
+        print("设备连接成功！")
+
+        # 询问是否重新校准
         while True:
-            calibrate_choice = input("Do you want to recalibrate the robot? (y/n): ").strip().lower()
+            calibrate_choice = input("是否要重新校准机器人？(y/n)：").strip().lower()
             if calibrate_choice in ['y', 'yes']:
-                print("Starting recalibration...")
+                print("开始重新校准...")
                 robot.calibrate()
-                print("Calibration completed!")
+                print("校准完成！")
                 break
             elif calibrate_choice in ['n', 'no']:
-                print("Using previous calibration file")
+                print("使用之前的校准文件")
                 break
             else:
-                print("Please enter y or n")
+                print("请输入y或n")
         
         # Read initial joint angles
         print("Reading initial joint angles...")

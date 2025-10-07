@@ -39,26 +39,33 @@ logger = logging.getLogger(__name__)
 
 class XLerobot(Robot):
     """
-    The robot includes a three omniwheel mobile base and a remote follower arm.
-    The leader arm is connected locally (on the laptop) and its joint positions are recorded and then
-    forwarded to the remote follower arm (after applying a safety clamp).
-    In parallel, keyboard teleoperation is used to generate raw velocity commands for the wheels.
+    Xlerobot类 - 移动操作机器人
+
+    该机器人包括三个全向轮移动底座和一个远程跟随臂。
+    主臂本地连接（在笔记本电脑上），其关节位置被记录然后转发到远程跟随臂（应用安全夹具后）。
+    同时，键盘遥操作用于为车轮生成原始速度命令。
     """
 
     config_class = XLerobotConfig
     name = "xlerobot"
 
     def __init__(self, config: XLerobotConfig):
+        """
+        初始化Xlerobot
+
+        Args:
+            config: Xlerobot配置对象
+        """
         super().__init__(config)
         self.config = config
         self.teleop_keys = config.teleop_keys
-        # Define three speed levels and a current index
+        # 定义三个速度级别和当前索引
         self.speed_levels = [
-            {"xy": 0.1, "theta": 30},  # slow
-            {"xy": 0.2, "theta": 60},  # medium
-            {"xy": 0.3, "theta": 90},  # fast
+            {"xy": 0.1, "theta": 30},  # 慢速
+            {"xy": 0.2, "theta": 60},  # 中速
+            {"xy": 0.3, "theta": 90},  # 快速
         ]
-        self.speed_index = 0  # Start at slow
+        self.speed_index = 0  # 从慢速开始
         norm_mode_body = MotorNormMode.DEGREES if config.use_degrees else MotorNormMode.RANGE_M100_100
         if self.calibration.get("left_arm_shoulder_pan") is not None:
             calibration1 = {

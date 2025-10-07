@@ -11,21 +11,34 @@ from lerobot.cameras import ColorMode, Cv2Rotation
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 
 def create_real_robot(port, camera_index, uid: str = "so101") -> Robot:
-    """Wrapper function to map string UIDS to real robot configurations. Primarily for saving a bit of code for users when they fork the repository. They can just edit the camera, id etc. settings in this one file."""
+    """
+    创建真实机器人的包装函数
+
+    将字符串UID映射到真实机器人配置。主要用于用户在fork仓库时节省代码量，
+    他们可以在这个文件中编辑相机、id等设置。
+
+    Args:
+        port: 机器人USB端口
+        camera_index: 相机索引
+        uid: 机器人唯一标识符，默认为"so101"
+
+    Returns:
+        Robot: 配置好的机器人实例
+    """
     if uid == "so101":
         robot_config = SO101FollowerConfig(
             port= port,
             use_degrees=True,
-            # for phone camera users you can use the commented out setting below
+            # 手机相机用户可以使用下面的注释设置
             cameras = {
-                "base_camera": OpenCVCameraConfig(index_or_path= camera_index,  # Replace with camera index found in find_cameras.py
+                "base_camera": OpenCVCameraConfig(index_or_path= camera_index,  # 替换为find_cameras.py中找到的相机索引
                 fps=30,
                 width=640,
                 height=480,
                 color_mode=ColorMode.RGB,
                 rotation=Cv2Rotation.NO_ROTATION)
             },
-            # for intel realsense camera users you need to modify the serial number or name for your own hardware
+            # Intel RealSense相机用户需要修改自己硬件的序列号或名称
             # cameras={
             #     "base_camera": RealSenseCameraConfig(serial_number_or_name="146322070293", fps=30, width=640, height=480)
             # },
@@ -37,66 +50,74 @@ def create_real_robot(port, camera_index, uid: str = "so101") -> Robot:
 
 class SO101Kinematics:
     """
-    A class to represent the kinematics of a SO101 robot arm.
-    All public methods use degrees for input/output.
+    SO101机器人臂运动学类
+
+    所有公共方法都使用度作为输入/输出单位。
     """
 
     def __init__(self, l1=0.1159, l2=0.1350):
-        self.l1 = l1  # Length of the first link (upper arm)
-        self.l2 = l2  # Length of the second link (lower arm)
+        """
+        初始化运动学参数
+
+        Args:
+            l1: 第一连杆长度（上臂），默认0.1159米
+            l2: 第二连杆长度（下臂），默认0.1350米
+        """
+        self.l1 = l1  # 第一连杆长度（上臂）
+        self.l2 = l2  # 第二连杆长度（下臂）
 
     def inverse_kinematics(self, x, y, l1=None, l2=None):
         """
-        Calculate inverse kinematics for a 2-link robotic arm, considering joint offsets
-        
-        Parameters:
-            x: End effector x coordinate
-            y: End effector y coordinate
-            l1: Upper arm length (default uses instance value)
-            l2: Lower arm length (default uses instance value)
-            
+        计算两连杆机械臂的逆运动学，考虑关节偏移
+
+        Args:
+            x: 末端执行器x坐标
+            y: 末端执行器y坐标
+            l1: 上臂长度（默认使用实例值）
+            l2: 下臂长度（默认使用实例值）
+
         Returns:
-            joint2_deg, joint3_deg: Joint angles in degrees (shoulder_lift, elbow_flex)
+            joint2_deg, joint3_deg: 关节角度（度）(shoulder_lift, elbow_flex)
         """
-        # Use instance values if not provided
+        # 如果未提供参数，使用实例值
         if l1 is None:
             l1 = self.l1
         if l2 is None:
             l2 = self.l2
-            
-        # Calculate joint2 and joint3 offsets in theta1 and theta2
-        theta1_offset = math.atan2(0.028, 0.11257)  # theta1 offset when joint2=0
-        theta2_offset = math.atan2(0.0052, 0.1349) + theta1_offset  # theta2 offset when joint3=0
-        
-        # Calculate distance from origin to target point
+
+        # 计算关节2和关节3在theta1和theta2中的偏移
+        theta1_offset = math.atan2(0.028, 0.11257)  # 关节2为0时的theta1偏移
+        theta2_offset = math.atan2(0.0052, 0.1349) + theta1_offset  # 关节3为0时的theta2偏移
+
+        # 计算原点到目标点的距离
         r = math.sqrt(x**2 + y**2)
-        r_max = l1 + l2  # Maximum reachable distance
-        
-        # If target point is beyond maximum workspace, scale it to the boundary
+        r_max = l1 + l2  # 最大可达距离
+
+        # 如果目标点超出最大工作空间，将其缩放到边界
         if r > r_max:
             scale_factor = r_max / r
             x *= scale_factor
             y *= scale_factor
             r = r_max
-        
-        # If target point is less than minimum workspace (|l1-l2|), scale it
+
+        # 如果目标点小于最小工作空间（|l1-l2|），将其缩放
         r_min = abs(l1 - l2)
         if r < r_min and r > 0:
             scale_factor = r_min / r
             x *= scale_factor
             y *= scale_factor
             r = r_min
-        
-        # Use law of cosines to calculate theta2
+
+        # 使用余弦定理计算theta2
         cos_theta2 = -(r**2 - l1**2 - l2**2) / (2 * l1 * l2)
-        
-        # Clamp cos_theta2 to valid range [-1, 1] to avoid domain errors
+
+        # 将cos_theta2限制在有效范围[-1, 1]以避免域错误
         cos_theta2 = max(-1.0, min(1.0, cos_theta2))
-        
-        # Calculate theta2 (elbow angle)
+
+        # 计算theta2（肘部角度）
         theta2 = math.pi - math.acos(cos_theta2)
-        
-        # Calculate theta1 (shoulder angle)
+
+        # 计算theta1（肩部角度）
         beta = math.atan2(y, x)
         gamma = math.atan2(l2 * math.sin(theta2), l1 + l2 * math.cos(theta2))
         theta1 = beta + gamma
